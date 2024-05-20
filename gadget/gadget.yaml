@@ -1,0 +1,21 @@
+name: nointeractive
+description: This gadget blocks executing commands interactively in running containers
+homepageURL: https://github.com/dorser/nointeractive-gadget
+documentationURL: https://github.com/dorser/nointeractive-gadget
+readmeMarkdownURL: https://raw.githubusercontent.com/dorser/nointeractive-gadget/main/README.md
+sourceURL: https://github.com/dorser/nointeractive-gadget
+annotations:
+  io.artifacthub.package.category: security
+  io.artifacthub.package.keywords: ig,inspektor-gadget
+  io.artifacthub.package.logo-url: https://raw.githubusercontent.com/inspektor-gadget/inspektor-gadget/main/docs/images/logo/icon.png
+tracers:
+  noshell:
+    mapName: events
+    structName: event
+structs:
+  event:
+    fields:
+    - name: timestamp
+      description: 'TODO: Fill field description'
+    - name: comm
+      description: 'TODO: Fill field description'
