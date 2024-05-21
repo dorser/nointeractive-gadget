@@ -5,10 +5,10 @@
 #include <bpf/bpf_tracing.h>
 
 #include <gadget/buffer.h>
+#include <gadget/filesystem.h>
 #include <gadget/macros.h>
 #include <gadget/mntns_filter.h>
 #include <gadget/types.h>
-#include <gadget/filesystem.h>
 
 #ifndef TASK_COMM_LEN
 #define TASK_COMM_LEN 64
@@ -23,9 +23,9 @@
 #define RUNC_INIT_LEN 13
 
 struct event {
-	gadget_mntns_id mntns_id;
-	gadget_timestamp timestamp;
-	__u8 comm[TASK_COMM_LEN];
+  gadget_mntns_id mntns_id;
+  gadget_timestamp timestamp;
+  __u8 comm[TASK_COMM_LEN];
 };
 
 const volatile int target_signal = SIGKILL;
@@ -34,41 +34,43 @@ GADGET_TRACER_MAP(events, 1024 * 256);
 
 GADGET_TRACER(nointeractive, events, event);
 
-static __always_inline int submit_event_and_kill(struct syscall_trace_enter *ctx, gadget_mntns_id mntns_id) {
-	struct event *event;
+static __always_inline int
+submit_event_and_kill(struct syscall_trace_enter *ctx,
+                      gadget_mntns_id mntns_id) {
+  struct event *event;
   event = gadget_reserve_buf(&events, sizeof(*event));
   if (!event)
     return 0;
 
   // event data
   event->timestamp = bpf_ktime_get_boot_ns();
-	event->mntns_id = mntns_id;
-	bpf_get_current_comm(&event->comm, sizeof(event->comm));
+  event->mntns_id = mntns_id;
+  bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
   // emit event
-	gadget_submit_buf(ctx, &events, event, sizeof(*event));
+  gadget_submit_buf(ctx, &events, event, sizeof(*event));
 
   // kill target process
   bpf_send_signal(target_signal);
-	return 0;
+  return 0;
 }
 
 SEC("tracepoint/syscalls/sys_enter_ioctl")
-int enter_ioctl(struct syscall_trace_enter *ctx)
-{
-	gadget_mntns_id mntns_id = gadget_get_mntns_id();
-  
-	__u8 comm[TASK_COMM_LEN];
+int enter_ioctl(struct syscall_trace_enter *ctx) {
+  gadget_mntns_id mntns_id = gadget_get_mntns_id();
+
+  __u8 comm[TASK_COMM_LEN];
   int fd;
   int req;
 
-	bpf_get_current_comm(comm, sizeof(comm));
+  bpf_get_current_comm(comm, sizeof(comm));
   fd = (int)ctx->args[0];
   req = (int)ctx->args[1];
 
   // stop processing if this is not an attempt to set an interactive terminal
   // file descriptors 0-2 are reserved for STDIN, STDOUT and STDERR
-  if (fd > 2 || req != TIOCSCTTY || __builtin_memcmp(comm, RUNC_INIT, RUNC_INIT_LEN)) 
+  if (fd > 2 || req != TIOCSCTTY ||
+      __builtin_memcmp(comm, RUNC_INIT, RUNC_INIT_LEN))
     return 0;
 
   return submit_event_and_kill(ctx, mntns_id);
