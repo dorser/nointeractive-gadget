@@ -22,11 +22,6 @@
 #define RUNC_INIT "runc:[2:INIT]"
 #define RUNC_INIT_LEN 13
 
-struct mntns_id_res {
-  u64 mntns_id;
-  bool err;  
-};
-
 struct event {
 	gadget_mntns_id mntns_id;
 	gadget_timestamp timestamp;
@@ -38,19 +33,6 @@ const volatile int target_signal = SIGKILL;
 GADGET_TRACER_MAP(events, 1024 * 256);
 
 GADGET_TRACER(nointeractive, events, event);
-
-static __always_inline struct mntns_id_res get_container_mntns_id(void) {
-	struct mntns_id_res res;
- 
-  // enrich events and stop processing an event when it does not originate from 
-  // a container
-	res.mntns_id = gadget_get_mntns_id();
-	res.err = false;
-	if (gadget_should_discard_mntns_id(res.mntns_id))
-	  res.err = true;
-
-  return res;
-}
 
 static __always_inline int submit_event_and_kill(struct syscall_trace_enter *ctx, gadget_mntns_id mntns_id) {
 	struct event *event;
@@ -74,10 +56,7 @@ static __always_inline int submit_event_and_kill(struct syscall_trace_enter *ctx
 SEC("tracepoint/syscalls/sys_enter_ioctl")
 int enter_ioctl(struct syscall_trace_enter *ctx)
 {
-  struct mntns_id_res mntns_id_res = get_container_mntns_id();
-  u64 mntns_id = mntns_id_res.mntns_id;
-  if (mntns_id_res.err)
-    return 0;
+	gadget_mntns_id mntns_id = gadget_get_mntns_id();
   
 	__u8 comm[TASK_COMM_LEN];
   int fd;
