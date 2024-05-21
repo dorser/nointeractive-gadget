@@ -10,10 +10,6 @@
 #include <gadget/mntns_filter.h>
 #include <gadget/types.h>
 
-#ifndef TASK_COMM_LEN
-#define TASK_COMM_LEN 64
-#endif
-
 #ifndef SIGKILL
 #define SIGKILL 9
 #endif
@@ -25,7 +21,11 @@
 struct event {
   gadget_mntns_id mntns_id;
   gadget_timestamp timestamp;
-  __u8 comm[TASK_COMM_LEN];
+  __u32 ppid;
+  __u32 tid;
+  __u32 uid;
+  __u32 gid;
+  char comm[TASK_COMM_LEN];
 };
 
 const volatile int target_signal = SIGKILL;
@@ -37,6 +37,11 @@ GADGET_TRACER(nointeractive, events, event);
 static __always_inline int
 submit_event_and_kill(struct syscall_trace_enter *ctx,
                       gadget_mntns_id mntns_id) {
+  u64 uid_gid = bpf_get_current_uid_gid();
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+  u32 uid = (u32)uid_gid;
+  u32 gid = (u32)(uid_gid >> 32);
+  struct task_struct *task = (struct task_struct *)bpf_get_current_task();
   struct event *event;
   event = gadget_reserve_buf(&events, sizeof(*event));
   if (!event)
@@ -45,6 +50,10 @@ submit_event_and_kill(struct syscall_trace_enter *ctx,
   // event data
   event->timestamp = bpf_ktime_get_boot_ns();
   event->mntns_id = mntns_id;
+  event->ppid = (pid_t)BPF_CORE_READ(task, real_parent, tgid);
+  event->tid = (__u32)pid_tgid;
+  event->uid = uid;
+  event->gid = gid;
   bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
   // emit event
