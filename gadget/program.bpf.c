@@ -26,6 +26,7 @@ struct event {
   __u32 uid;
   __u32 gid;
   char comm[TASK_COMM_LEN];
+  char filepath[TASK_COMM_LEN];
 };
 
 const volatile int target_signal = SIGKILL;
@@ -35,8 +36,8 @@ GADGET_TRACER_MAP(events, 1024 * 256);
 GADGET_TRACER(nointeractive, events, event);
 
 static __always_inline int
-submit_event_and_kill(struct syscall_trace_enter *ctx,
-                      gadget_mntns_id mntns_id) {
+submit_event_and_kill(struct syscall_trace_enter *ctx) {
+  gadget_mntns_id mntns_id = gadget_get_mntns_id();
   u64 uid_gid = bpf_get_current_uid_gid();
   u64 pid_tgid = bpf_get_current_pid_tgid();
   u32 uid = (u32)uid_gid;
@@ -56,6 +57,10 @@ submit_event_and_kill(struct syscall_trace_enter *ctx,
   event->gid = gid;
   bpf_get_current_comm(&event->comm, sizeof(event->comm));
 
+  struct path f_path = BPF_CORE_READ(task, mm, exe_file, f_path);
+  char *c_path = get_path_str(&f_path);
+  bpf_probe_read_kernel_str(&event->filepath, sizeof(event->filepath), c_path);
+
   // emit event
   gadget_submit_buf(ctx, &events, event, sizeof(*event));
 
@@ -66,8 +71,6 @@ submit_event_and_kill(struct syscall_trace_enter *ctx,
 
 SEC("tracepoint/syscalls/sys_enter_ioctl")
 int enter_ioctl(struct syscall_trace_enter *ctx) {
-  gadget_mntns_id mntns_id = gadget_get_mntns_id();
-
   __u8 comm[TASK_COMM_LEN];
   int fd;
   int req;
@@ -82,7 +85,7 @@ int enter_ioctl(struct syscall_trace_enter *ctx) {
       __builtin_memcmp(comm, RUNC_INIT, RUNC_INIT_LEN))
     return 0;
 
-  return submit_event_and_kill(ctx, mntns_id);
+  return submit_event_and_kill(ctx);
 }
 
 char LICENSE[] SEC("license") = "GPL";
