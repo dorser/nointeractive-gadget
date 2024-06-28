@@ -15,8 +15,8 @@
 #endif
 
 #define TIOCSCTTY 21518
-#define RUNC_INIT "runc:[2:INIT]"
-#define RUNC_INIT_LEN 13
+#define CONTAINER_RUNTIME "runc"
+#define CONTAINER_RUNTIME_LEN 4
 
 struct event {
   gadget_mntns_id mntns_id;
@@ -71,18 +71,21 @@ submit_event_and_kill(struct syscall_trace_enter *ctx) {
 
 SEC("tracepoint/syscalls/sys_enter_ioctl")
 int enter_ioctl(struct syscall_trace_enter *ctx) {
-  __u8 comm[TASK_COMM_LEN];
   int fd;
   int req;
 
-  bpf_get_current_comm(comm, sizeof(comm));
   fd = (int)ctx->args[0];
   req = (int)ctx->args[1];
+  struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+  struct path f_path = BPF_CORE_READ(task, mm, exe_file, f_path);
+  char *c_path = get_path_str(&f_path);
+  __u8 filepath[TASK_COMM_LEN];
+  bpf_probe_read_kernel_str(filepath, sizeof(filepath), c_path);
 
   // stop processing if this is not an attempt to set an interactive terminal
   // file descriptors 0-2 are reserved for STDIN, STDOUT and STDERR
   if (fd > 2 || req != TIOCSCTTY ||
-      __builtin_memcmp(comm, RUNC_INIT, RUNC_INIT_LEN))
+      __builtin_memcmp(filepath, CONTAINER_RUNTIME, CONTAINER_RUNTIME_LEN))
     return 0;
 
   return submit_event_and_kill(ctx);
